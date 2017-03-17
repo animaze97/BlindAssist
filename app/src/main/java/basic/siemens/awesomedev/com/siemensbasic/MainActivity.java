@@ -3,7 +3,9 @@ package basic.siemens.awesomedev.com.siemensbasic;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
@@ -22,13 +24,22 @@ import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.drive.DriveApi;
+import com.google.android.gms.drive.DriveFile;
 import com.google.android.gms.drive.DriveFolder;
+import com.google.android.gms.drive.DriveId;
+import com.google.android.gms.drive.DriveResource;
 import com.google.android.gms.drive.MetadataChangeSet;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
 import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.DriveScopes;
+import com.google.gson.Gson;
+import com.microsoft.projectoxford.vision.VisionServiceClient;
+import com.microsoft.projectoxford.vision.VisionServiceRestClient;
+import com.microsoft.projectoxford.vision.contract.AnalysisResult;
+import com.microsoft.projectoxford.vision.rest.VisionServiceException;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -59,8 +70,12 @@ public class MainActivity extends AppCompatActivity implements  View.OnClickList
     private static final int REQUEST_CAPTURE_IMAGE = 1000;
     private static final int REQUEST_RESOLVE_CONNECTION = 1005;
 
+
+    private VisionServiceClient visionServiceClient = null;
+
     // Path for the current photo
     private String mCurrentPhotoPath = null;
+    private Uri mCurrentPhotoUri = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -83,6 +98,9 @@ public class MainActivity extends AppCompatActivity implements  View.OnClickList
         mCredentials = GoogleAccountCredential.usingOAuth2(getApplicationContext(), Arrays.asList(SCOPES))
                 .setBackOff(new ExponentialBackOff());
         
+
+        visionServiceClient = new VisionServiceRestClient(getString(R.string.api_key));
+
     }
 
 
@@ -119,7 +137,8 @@ public class MainActivity extends AppCompatActivity implements  View.OnClickList
         switch (requestCode) {
             case REQUEST_CAPTURE_IMAGE:
                 Toast.makeText(this, "Captured the image", Toast.LENGTH_SHORT).show();
-                saveToDrive();
+                //saveToDrive();
+                new AnalyseTask().execute("");
                 break;
 
             case REQUEST_RESOLVE_CONNECTION:
@@ -178,7 +197,7 @@ public class MainActivity extends AppCompatActivity implements  View.OnClickList
         public void onResult(@NonNull DriveFolder.DriveFileResult driveFileResult) {
             if (driveFileResult.getStatus().isSuccess()){
                 Toast.makeText(MainActivity.this, "File Successfully Created!!", Toast.LENGTH_SHORT).show();
-                
+                new getUrlTask().execute(driveFileResult.getDriveFile());
                 return;
             }
             else{
@@ -203,6 +222,7 @@ public class MainActivity extends AppCompatActivity implements  View.OnClickList
 
             if (mPhoto != null) {
                 Uri photoUri = FileProvider.getUriForFile(this, "com.example.android.fileprovider", mPhoto);
+                this.mCurrentPhotoUri = photoUri;
                 intent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
                 // Dispatch the camera intent
                 startActivityForResult(intent, REQUEST_CAPTURE_IMAGE);
@@ -245,6 +265,55 @@ public class MainActivity extends AppCompatActivity implements  View.OnClickList
             }
         } else {
             GooglePlayServicesUtil.getErrorDialog(connectionResult.getErrorCode(), this, 0).show();
+        }
+    }
+
+    private class getUrlTask extends AsyncTask<DriveFile , Void , String> {
+
+        @Override
+        protected String doInBackground(DriveFile... params) {
+            DriveFile file = params[0];
+            DriveResource.MetadataResult metadataResult = file.getMetadata(mClient).await();
+            return metadataResult.getMetadata().getWebViewLink();
+        }
+
+        @Override
+        protected void onPostExecute(String s) {
+            Toast.makeText(MainActivity.this, "Link : " + s, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private class AnalyseTask extends AsyncTask<String,String,String> {
+
+        @Override
+        protected String doInBackground(String... params) {
+
+            Bitmap mBitmap = ImageHelper.loadSizeLimitedBitmapFromUri(mCurrentPhotoPath,getContentResolver());
+
+            Log.d(TAG, "doInBackground: " + mCurrentPhotoUri.toString());
+
+            Gson gson = new Gson();
+            String[] features = {"ImageType", "Color", "Faces", "Adult", "Categories"};
+            String[] details = {};
+
+            // Put the image into an input stream for detection.
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            mBitmap.compress(Bitmap.CompressFormat.JPEG, 100, output);
+            ByteArrayInputStream inputStream = new ByteArrayInputStream(output.toByteArray());
+
+            AnalysisResult v = null;
+            try {
+                v = visionServiceClient.analyzeImage(inputStream, features, details);
+            } catch (VisionServiceException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            String result = gson.toJson(v);
+            Log.d("result", result);
+
+            return result;
         }
     }
 }

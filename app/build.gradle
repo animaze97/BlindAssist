@@ -30,6 +30,8 @@ dependencies {
     compile 'com.google.android.gms:play-services-auth:10.2.0'
     compile 'com.google.android.gms:play-services:10.2.0'
 
+    compile group: 'com.microsoft.projectoxford', name: 'vision', version: '1.0.374'
+
     compile 'pub.devrel:easypermissions:0.2.1'
     compile('com.google.api-client:google-api-client-android:1.22.0') {
         exclude group: 'org.apache.httpcomponents'
